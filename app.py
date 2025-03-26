@@ -167,5 +167,3 @@ if st.button("✨ Generate Travel Plan", use_container_width=True):
         else:
             st.error("❌ Failed to generate itinerary. Please try again.")
 
-# Requirements File
-requirements.txt:
