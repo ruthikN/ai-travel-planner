@@ -1,3 +1,4 @@
+from datetime import timedelta
 import streamlit as st
 import google.generativeai as genai
 from datetime import date
