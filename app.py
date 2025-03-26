@@ -6,13 +6,8 @@ import json
 import time
 
 # Configure Gemini API with proper endpoint
-genai.configure(
-    api_key=st.secrets["GEMINI_API_KEY"],
-    transport="rest",
-    client_options={
-        "api_endpoint": "generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent"
-    }
-)
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+
 
 def generate_itinerary(user_input):
     """Generate travel itinerary using Google Gemini 1.0 Pro"""
@@ -41,7 +36,7 @@ def generate_itinerary(user_input):
         Use markdown formatting with emojis for better readability.
         """
         
-        model = genai.GenerativeModel('gemini-1.0-pro')
+        model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content(
             prompt,
             generation_config={
