@@ -4,7 +4,7 @@ import requests
 from datetime import datetime
 
 # OpenAI API Key (Replace with your own key)
-OPENAI_API_KEY = "your_openai_api_key"
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 openai.api_key = OPENAI_API_KEY
 
 def get_travel_recommendations(destination):
