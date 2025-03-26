@@ -24,7 +24,7 @@ def generate_itinerary(user_input):
     """
     
     response = openai.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4-turbo",
         messages=[
             {"role": "system", "content": "You are a helpful AI travel planner."},
             {"role": "user", "content": prompt}
