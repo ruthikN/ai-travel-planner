@@ -36,7 +36,7 @@ def generate_itinerary(user_input):
         Use markdown formatting with emojis for better readability.
         """
         
-        model = genai.GenerativeModel('gemini-pro-vision')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(
             prompt,
             generation_config={
