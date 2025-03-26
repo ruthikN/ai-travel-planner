@@ -10,7 +10,7 @@ genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 
 def generate_itinerary(user_input):
-    """Generate travel itinerary using Google Gemini 1.0 Pro"""
+    """Generate travel itinerary using Google Gemini 1.5 flash"""
     try:
         # Structured prompt template
         prompt = f"""
@@ -141,7 +141,7 @@ if st.button("✨ Generate Travel Plan", use_container_width=True):
             
             # Additional Features
             with st.expander("📌 Travel Safety Tips"):
-                safety_tips = genai.GenerativeModel('gemini-1.0-pro').generate_content(
+                safety_tips = genai.GenerativeModel('gemini-1.5-flash').generate_content(
                     f"Generate safety tips for {destination} considering: {requirements}"
                 ).text
                 st.markdown(safety_tips)
