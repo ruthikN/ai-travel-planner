@@ -23,12 +23,14 @@ def generate_itinerary(user_input):
     Create a detailed day-by-day travel itinerary including accommodation, sightseeing, and local cuisine.
     """
     
-    response = openai.ChatCompletion.create(
+    response = openai.chat.completions.create(
         model="gpt-4",
-        messages=[{"role": "system", "content": "You are a helpful AI travel planner."},
-                  {"role": "user", "content": prompt}]
+        messages=[
+            {"role": "system", "content": "You are a helpful AI travel planner."},
+            {"role": "user", "content": prompt}
+        ]
     )
-    return response["choices"][0]["message"]["content"]
+    return response.choices[0].message.content
 
 # Streamlit UI
 st.title("AI-Powered Travel Planner")
@@ -45,7 +47,7 @@ if st.button("Generate Itinerary"):
         "name": name,
         "destination": destination,
         "budget": budget,
-        "travel_dates": travel_dates,
+        "travel_dates": str(travel_dates),
         "preferences": preferences,
     }
     itinerary = generate_itinerary(user_input)
