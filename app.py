@@ -6,6 +6,24 @@ from datetime import date, timedelta
 import time
 import pandas as pd
 
+# Debug: Show which secrets are available
+st.write("🔑 Secrets currently loaded:", st.secrets)
+
+# Try to read keys
+gemini_api_key = st.secrets.get("GEMINI_API_KEY")
+maps_api_key = st.secrets.get("GOOGLE_MAPS_API_KEY")
+weather_api_key = st.secrets.get("OPENWEATHER_API_KEY")
+
+st.write("Gemini API Key:", gemini_api_key)
+st.write("Maps API Key:", maps_api_key)
+st.write("Weather API Key:", weather_api_key)
+
+# Fail early if missing
+if not gemini_api_key or not maps_api_key or not weather_api_key:
+    st.error("❌ API keys not found! Please add GEMINI_API_KEY, GOOGLE_MAPS_API_KEY, and OPENWEATHER_API_KEY to your Streamlit secrets.")
+    st.stop()
+
+
 # --- Page Configuration ---
 st.set_page_config(
     page_title="AI Travel Planner Pro",
@@ -350,3 +368,4 @@ if st.button("🚀 Generate My Itinerary!", use_container_width=True, type="prim
 
         else:
             st.error("Failed to generate itinerary. The AI may be busy or the request could not be processed. Please try again.", icon="❌")
+
