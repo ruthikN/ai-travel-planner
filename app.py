@@ -1,6 +1,9 @@
 # app.py
+
 import streamlit as st
-import google.generativeai as genai
+import google.auth
+import vertexai
+from vertexai.generative_models import GenerativeModel
 import requests
 import json
 from datetime import date, timedelta
@@ -15,13 +18,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- API Key Configuration ---
+# --- Authentication & API Configuration ---
 try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    # Authenticate to Google Cloud using the service account credentials in secrets
+    # This is the secure way for Vertex AI
+    credentials, project_id = google.auth.load_credentials_from_dict(st.secrets["google_credentials"])
+    vertexai.init(project=project_id, credentials=credentials)
+
+    # API keys for other services
     GOOGLE_MAPS_API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
     OPENWEATHER_API_KEY = st.secrets["OPENWEATHER_API_KEY"]
-except KeyError:
-    st.error("🚨 API keys not found! Please add GEMINI_API_KEY, GOOGLE_MAPS_API_KEY, and OPENWEATHER_API_KEY to your Streamlit secrets.", icon="🚨")
+except (KeyError, FileNotFoundError):
+    st.error("🚨 GCP credentials or other API keys not found! Please check your Streamlit secrets.", icon="🚨")
     st.stop()
 
 # --- Session State Initialization ---
@@ -30,9 +38,9 @@ if "itinerary_data" not in st.session_state:
 if "map_data" not in st.session_state:
     st.session_state.map_data = None
 if "center_lat" not in st.session_state:
-    st.session_state.center_lat = 35.6895
+    st.session_state.center_lat = 35.6895 # Default to Tokyo
 if "center_lon" not in st.session_state:
-    st.session_state.center_lon = 139.6917 # Default to Tokyo
+    st.session_state.center_lon = 139.6917
 
 # --- Helper Functions for API Calls ---
 
@@ -88,10 +96,9 @@ def get_directions_and_route(origin_lat, origin_lon, dest_lat, dest_lon, mode='t
         route = data['routes'][0]['legs'][0]
         duration = route['duration']['text']
         
-        # Decode polyline
         polyline_str = data['routes'][0]['overview_polyline']['points']
         
-        # This is a basic decoding algorithm. For production, a library like `polyline` is better.
+        # Polyline decoding logic
         def decode_polyline(polyline_str):
             index, lat, lng = 0, 0, 0
             coordinates = []
@@ -123,8 +130,6 @@ def get_directions_and_route(origin_lat, origin_lon, dest_lat, dest_lon, mode='t
 
 def get_weather_forecast(lat, lon, start_date, duration):
     """Fetches weather forecast for the trip duration (up to 5 days free)."""
-    # ... (Your existing get_weather_forecast function can be used here without change) ...
-    # For brevity, I'll keep it as is.
     try:
         url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OPENWEATHER_API_KEY}&units=metric"
         response = requests.get(url)
@@ -151,17 +156,18 @@ def get_weather_forecast(lat, lon, start_date, duration):
         
 def find_hotels_nearby(lat, lon):
     """Finds hotels near a given coordinate using Google Places API Nearby Search."""
-    url = f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={lat},{lon}&radius=2000&type=lodging&key={GOOGLE_MAPS_API_KEY}"
+    url = f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={lat},{lon}&radius=2500&type=lodging&key={GOOGLE_MAPS_API_KEY}"
     try:
         response = requests.get(url)
         response.raise_for_status()
         results = response.json().get('results', [])
         hotels = []
-        for place in results[:10]: # Get top 10
+        for place in results[:10]:
             hotels.append({
                 "name": place.get('name'),
                 "rating": place.get('rating', 'N/A'),
-                "vicinity": place.get('vicinity')
+                "vicinity": place.get('vicinity'),
+                "total_ratings": place.get('user_ratings_total', 0)
             })
         return hotels
     except requests.exceptions.RequestException:
@@ -181,7 +187,7 @@ def get_destination_coords(destination):
         return None, None
 
 def generate_itinerary_with_gemini(user_input):
-    """Generates a structured travel itinerary using Gemini 1.5 Pro."""
+    """Generates a structured travel itinerary using Gemini 1.5 Pro on Vertex AI."""
     prompt = f"""
     You are an expert travel planner AI. Create a detailed, exciting, and logical travel itinerary.
     Your output MUST be a valid JSON object, with no markdown formatting before or after.
@@ -204,52 +210,30 @@ def generate_itinerary_with_gemini(user_input):
             "day": 1,
             "theme": "A theme for the day (e.g., 'Historical Heart & Culinary Kickstart').",
             "activities": [
-              {{
-                "time_of_day": "Morning",
-                "poi_name": "Specific Name of a Place of Interest (e.g., 'Tokyo National Museum').",
-                "category": "Museum",
-                "description": "A 2-3 sentence description of the activity.",
-                "estimated_duration_mins": 180
-              }},
-              {{
-                "time_of_day": "Afternoon",
-                "poi_name": "Specific Name of a Restaurant or Cafe (e.g., 'Ichiran Ramen Ueno').",
-                "category": "Restaurant",
-                "description": "Why this place is a good choice for lunch, fitting the user's needs.",
-                "estimated_duration_mins": 60
-              }},
-              {{
-                "time_of_day": "Evening",
-                "poi_name": "Specific Name of an evening activity (e.g., 'Tokyo Skytree').",
-                "category": "Viewpoint",
-                "description": "Description of the evening experience.",
-                "estimated_duration_mins": 120
-              }}
+              {{"time_of_day": "Morning", "poi_name": "Specific Name of a Place of Interest (e.g., 'Tokyo National Museum').", "category": "Museum", "description": "A 2-3 sentence description.", "estimated_duration_mins": 180}},
+              {{"time_of_day": "Afternoon", "poi_name": "Specific Name of a Restaurant or Cafe (e.g., 'Ichiran Ramen Ueno').", "category": "Restaurant", "description": "Why this place is a good choice.", "estimated_duration_mins": 60}},
+              {{"time_of_day": "Evening", "poi_name": "Specific Name of an evening activity (e.g., 'Tokyo Skytree').", "category": "Viewpoint", "description": "Description of the evening experience.", "estimated_duration_mins": 120}}
             ]
           }}
-          // ... more day objects
         ],
         "local_food_suggestions": ["List of local dishes to try."],
         "safety_tips": "Essential safety and cultural tips for the destination."
       }}
     }}
-
-    Generate the complete JSON object now based on the user request.
+    Generate the complete JSON object now.
     """
     try:
-        model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        model = GenerativeModel("gemini-1.5-pro-001")
         response = model.generate_content(prompt)
-        cleaned_response = response.text.strip().replace("```json", "").replace("```", "")
+        cleaned_response = response.text.strip().lstrip("```json").rstrip("```")
         return json.loads(cleaned_response)
-    except (json.JSONDecodeError, Exception) as e:
-        st.error(f"🤖 Error processing AI response: {e}. Please try again.")
-        st.code(response.text) # For debugging
+    except Exception as e:
+        st.error(f"🤖 Error processing AI response from Vertex AI: {e}", icon="🚨")
+        if 'response' in locals(): st.code(response.text)
         return None
-
 
 # --- Streamlit UI ---
 
-# --- Sidebar ---
 with st.sidebar:
     st.image("https://placehold.co/300x100/3498db/ffffff?text=Odyssey+AI&font=roboto", use_column_width=True)
     st.title("🚀 Trip Configuration")
@@ -264,23 +248,10 @@ with st.sidebar:
     with col2:
         start_date = st.date_input("Start Date", date.today() + timedelta(days=14))
 
-    budget = st.select_slider(
-        "Budget Level",
-        options=["💰 Budget", "💵 Mid-range", "💎 Luxury"]
-    )
-    travel_style = st.selectbox(
-        "Travel Style",
-        ["🏖️ Relaxing", "🧗 Adventure", "🏛️ Cultural", "🍜 Foodie", "👨‍👩‍👧‍👦 Family"]
-    )
-    interests = st.multiselect(
-        "Your Interests",
-        ["🏰 History", "🍣 Cuisine", "🌳 Nature", "🎨 Art & Museums", "🛍️ Shopping", "🌃 Nightlife"],
-        default=["🏰 History", "🍣 Cuisine"]
-    )
-    dietary = st.multiselect(
-        "Dietary Needs",
-        ["🍃 Vegetarian", "🌱 Vegan", "🌾 Gluten-Free", "🚫 Nut Allergy"]
-    )
+    budget = st.select_slider("Budget Level", options=["💰 Budget", "💵 Mid-range", "💎 Luxury"])
+    travel_style = st.selectbox("Travel Style", ["🏖️ Relaxing", "🧗 Adventure", "🏛️ Cultural", "🍜 Foodie", "👨‍👩‍👧‍👦 Family"])
+    interests = st.multiselect("Your Interests", ["🏰 History", "🍣 Cuisine", "🌳 Nature", "🎨 Art & Museums", "🛍️ Shopping", "🌃 Nightlife"], default=["🏰 History", "🍣 Cuisine"])
+    dietary = st.multiselect("Dietary Needs", ["🍃 Vegetarian", "🌱 Vegan", "🌾 Gluten-Free", "🚫 Nut Allergy"])
 
     if st.button("✨ Generate My Epic Trip!", use_container_width=True, type="primary"):
         if not destination or not name:
@@ -297,14 +268,13 @@ with st.sidebar:
 
             if st.session_state.itinerary_data:
                 with st.spinner("🌍 Fetching location data and calculating routes..."):
-                    # Enrich data with details and routes
                     trip_data = st.session_state.itinerary_data.get('trip', {})
                     itinerary_days = trip_data.get('itinerary', [])
-                    
                     st.session_state.center_lat, st.session_state.center_lon = get_destination_coords(destination)
 
                     all_points = []
                     route_layers = []
+                    day_colors = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 165, 0], [128, 0, 128], [255, 192, 203], [0, 128, 128]]
                     
                     for day_index, day in enumerate(itinerary_days):
                         day_points = []
@@ -316,37 +286,28 @@ with st.sidebar:
                                 day_points.append(point)
                                 all_points.append(point)
 
-                        # Calculate routes between activities for the day
                         for i in range(len(day_points) - 1):
                             origin = day_points[i]
                             dest = day_points[i+1]
                             path, duration = get_directions_and_route(origin['lat'], origin['lon'], dest['lat'], dest['lon'])
-                            # Find the corresponding activity and add duration
                             day['activities'][i+1]['travel_from_previous'] = f"~ {duration} by transit"
                             if path:
                                 route_layers.append(pdk.Layer(
-                                    "PathLayer",
-                                    data=pd.DataFrame([{'path': path}]),
-                                    get_path='path',
-                                    width_scale=20,
-                                    width_min_pixels=2,
-                                    get_color=[255, 0, 0, 200] if day['day'] == 1 else [0, 0, 255, 200] if day['day'] == 2 else [0, 255, 0, 200], # Simple color coding
-                                    pickable=True
+                                    "PathLayer", data=pd.DataFrame([{'path': path}]),
+                                    get_path='path', width_scale=20, width_min_pixels=2,
+                                    get_color=day_colors[day_index % len(day_colors)], pickable=True
                                 ))
-
                     st.session_state.map_data = {"points": all_points, "routes": route_layers}
-                    st.balloons()
+                st.balloons()
 
 
-# --- Main Interface ---
 st.title("🗺️ Odyssey AI Travel Planner")
 st.markdown("Your intelligent guide to crafting the perfect, personalized adventure.")
 st.markdown("---")
 
 if not st.session_state.itinerary_data:
     st.info("Fill out your trip details in the sidebar to generate your personalized itinerary!")
-
-if st.session_state.itinerary_data:
+else:
     trip_data = st.session_state.itinerary_data.get('trip', {})
     st.header(trip_data.get('trip_title', f"Your Trip to {destination}"))
     st.markdown(f"_{trip_data.get('summary', '')}_")
@@ -359,10 +320,8 @@ if st.session_state.itinerary_data:
             with st.expander(f"**Day {day['day']}: {day['theme']}**", expanded=day['day']==1):
                 for activity in day.get('activities', []):
                     st.subheader(f"{activity['time_of_day']}: {activity['poi_name']}")
-                    
                     if 'travel_from_previous' in activity:
                         st.caption(f"🚗 **Travel:** {activity['travel_from_previous']}")
-
                     st.markdown(activity['description'])
                     
                     details = activity.get('details')
@@ -370,52 +329,43 @@ if st.session_state.itinerary_data:
                         if details.get('photos'):
                             st.image(details['photos'][0], use_column_width=True, caption=f"⭐ Rating: {details.get('rating', 'N/A')}")
                         st.caption(f"📍 [{details.get('address')}]({details.get('map_url')})")
-                    
                     st.markdown("---")
 
     with tab2:
         st.header("Trip Hotspots & Daily Routes")
         if st.session_state.map_data and st.session_state.map_data['points']:
             df = pd.DataFrame(st.session_state.map_data['points'])
-            
             view_state = pdk.ViewState(
-                latitude=st.session_state.center_lat,
-                longitude=st.session_state.center_lon,
-                zoom=11,
-                pitch=50,
+                latitude=st.session_state.center_lat, longitude=st.session_state.center_lon,
+                zoom=11, pitch=50,
             )
-
             point_layer = pdk.Layer(
-                "ScatterplotLayer",
-                data=df,
-                get_position='[lon, lat]',
-                get_color='[200, 30, 0, 160]',
-                get_radius=100,
-                pickable=True,
-                tooltip={"text": "{name}\nDay: {day}"}
+                "ScatterplotLayer", data=df, get_position='[lon, lat]',
+                get_color='[200, 30, 0, 160]', get_radius=100, pickable=True,
+                tooltip={"html": "<b>{name}</b><br/>Day: {day}"}
             )
-
             st.pydeck_chart(pdk.Deck(
                 map_style='mapbox://styles/mapbox/light-v9',
                 initial_view_state=view_state,
-                layers=[point_layer] + st.session_state.map_data.get('routes', [])
+                layers=[point_layer] + st.session_state.map_data.get('routes', []),
+                tooltip={"html": "<b>{name}</b><br/>Day: {day}"}
             ))
         else:
-            st.warning("No map data available. Please generate an itinerary first.")
+            st.warning("No map data available. Generate an itinerary first.")
 
     with tab3:
         st.header("Logistics & Local Tips")
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("🏨 Hotel Suggestions")
-            st.info("These are hotels near the city center. You can use these as a starting point for your search.")
+            st.info("Hotels near the city center to start your search.")
             if st.session_state.center_lat:
                 hotels = find_hotels_nearby(st.session_state.center_lat, st.session_state.center_lon)
                 if hotels:
                     for hotel in hotels:
-                        st.write(f"**{hotel['name']}** - ⭐ {hotel['rating']}\n\n*_{hotel['vicinity']}_*")
+                        st.write(f"**{hotel['name']}** - ⭐ {hotel['rating']} ({hotel['total_ratings']} ratings)\n\n*_{hotel['vicinity']}_*")
                 else:
-                    st.write("Could not find hotels.")
+                    st.write("Could not find hotel suggestions.")
             
             st.subheader("🌦️ Weather Forecast")
             if st.session_state.center_lat:
@@ -423,10 +373,8 @@ if st.session_state.itinerary_data:
                 if weather:
                     for day_weather in weather:
                         col_icon, col_text = st.columns([1, 4])
-                        with col_icon:
-                            st.image(day_weather['icon'], width=40)
-                        with col_text:
-                            st.write(f"**{date.fromisoformat(day_weather['date']).strftime('%b %d')}**: {day_weather['avg_temp']}°C, {day_weather['condition']}")
+                        with col_icon: st.image(day_weather['icon'], width=40)
+                        with col_text: st.write(f"**{date.fromisoformat(day_weather['date']).strftime('%b %d')}**: {day_weather['avg_temp']}°C, {day_weather['condition']}")
                 else:
                     st.write("Weather data not available.")
 
