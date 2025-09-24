@@ -351,3 +351,4 @@ if st.button("🚀 Generate My Itinerary!", use_container_width=True, type="prim
             st.error("Failed to generate itinerary. The AI may be busy or the request could not be processed. Please try again.", icon="❌")
 
 
+
